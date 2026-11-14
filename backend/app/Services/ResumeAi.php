@@ -29,23 +29,49 @@ class ResumeAi extends ClaudeService
     }
 
     /** Review the resume: what works, what's missing, what to fix. Reads the file too, to judge layout. */
+    // The scoring rubric: the same for every resume and every run, so scores are comparable (an improved
+    // version is measured exactly like the original). Five criteria, 20 points each; overall = their sum.
+    private const RUBRIC = <<<'TXT'
+        Score each criterion out of 20 by adding up these points (give a point only for what the resume actually shows):
+        - completeness (20): name, email, phone and location (4); a summary (3); every job has title, company, start and end dates (6); education with school, degree and dates or expected date (4); a skills section (3).
+        - relevant_skills (20): skills are specific named tools, software or abilities, not vague words (8); the skills are shown in use in the experience bullets (8); most relevant first, no padding with generic soft skills (4).
+        - work_experience (20): bullets start with action verbs (5); bullets state concrete results, scope or numbers (8; only what is written counts); specific to the job rather than generic duties (5); most recent first (2).
+        - professional_summary (20): 3-4 sentences naming the target role (5); its strongest real skills (5); a concrete experience or achievement (6); no clichés and no "I" (4).
+        - formatting_readability (20): one clear layout with consistent headings and dates (8); concise bullets of one to two lines (6); ATS-friendly: plain text, no tables, images or multi-column text (6).
+        TXT;
+
+    /** Review the resume against the rubric: what works, what's missing, what to fix. */
     public function analyze(Resume $resume): array
     {
         $content = $resume->file_path ? $this->fileBlocks($resume) : [];
-        $content[] = ['type' => 'text', 'text' => "Extracted information, for reference:\n".json_encode($resume->data, JSON_PRETTY_PRINT)];
+        $content[] = ['type' => 'text', 'text' => "Resume information:\n".json_encode($resume->data, JSON_PRETTY_PRINT)];
         $content[] = ['type' => 'text', 'text' => 'Review this resume.'];
+        $layout = $resume->file_path
+            ? 'Judge formatting from the original file.'
+            : 'This version has no file: it is printed with TrabaHanap\'s standard template (one column, clear headings, consistent dates, plain ATS-friendly text). Give the layout points for that template and judge only what the content controls (bullet length, consistency).';
 
-        return $this->ask(
-            system: <<<'TXT'
-                You are an experienced tech recruiter reviewing a job seeker's resume. Be specific and honest, and kind.
-                Score each criterion 0-10 and the resume overall 0-100. Base every comment on what is actually in the resume and quote or name the part you mean.
-                Criteria: completeness, relevant_skills, work_experience, professional_summary, formatting_readability.
-                If there is no original file, judge formatting from the structure of the extracted information and say so.
+        $result = $this->ask(
+            system: <<<TXT
+                You are an experienced recruiter reviewing a job seeker's resume, for any field (not only tech). Be specific, honest and kind.
+                {$this->rubric()}
+                {$layout}
+                Base every comment on what is actually in the resume and quote or name the part you mean.
                 Suggestions must be things the candidate can do; never suggest adding experience or skills they may not have, instead suggest how to present what they have, or what to add if it is true.
                 TXT,
             content: $content,
             schema: self::analysisSchema(),
         );
+
+        // Consistent numbers: each criterion 0-20, overall exactly their sum.
+        $result['criteria'] = array_map(fn ($c) => [...$c, 'score' => max(0, min(20, (int) $c['score'])), 'max' => 20], $result['criteria']);
+        $result['overall_score'] = array_sum(array_column($result['criteria'], 'score'));
+
+        return $result;
+    }
+
+    private function rubric(): string
+    {
+        return self::RUBRIC;
     }
 
     /**
@@ -130,6 +156,71 @@ class ResumeAi extends ClaudeService
                 ],
             ],
             effort: 'high', // honesty matters more than speed here
+        );
+
+        return ['resume' => $result['resume'], 'notes' => ['changes' => $result['changes'], 'gaps' => $result['gaps']]];
+    }
+
+    // Shared rules for every resume Claude writes: strong, but only from verified facts.
+    private const WRITING_RULES = <<<'TXT'
+        The candidate's verified information is the only source of truth. You must not invent or inflate anything: no new employers, titles, dates, degrees, certifications, projects, skills, tools, numbers or achievements.
+        Write it as strongly as the facts allow:
+        - professional_title: the role they are going for (preferred job title, else their latest title).
+        - summary: 3-4 sentences, resume style (no "I"), leading with their strongest real skills and experience; no clichés ("hardworking", "passionate", "go-getter", "team player").
+        - responsibilities: one achievement-focused bullet per item, starting with a strong action verb (Built, Led, Reduced, Handled...), naming the tools used and the result when the information gives one. Keep any numbers exactly as given; never add numbers.
+        - Most relevant and recent first; drop filler; keep every job, school and certification they have.
+        - technical_skills: their skills, most relevant first, as short skill names.
+        Dates stay as written. Use null or empty lists for anything not given.
+        In changes, explain each important choice and the fact it is based on.
+        In gaps, list the most valuable things the resume is missing that only the candidate can add if they are true (e.g. "Add a number to your sales results, such as how many clients you handled"), at most 6.
+        TXT;
+
+    /** Write a complete resume from the Professional Profile (for people who have none). */
+    public function build(array $profile): array
+    {
+        return $this->writeResume(
+            'You write a complete, professional resume for a job seeker from their professional profile.',
+            "<professional_profile>\n".json_encode($profile, JSON_PRETTY_PRINT)."\n</professional_profile>\n\nWrite the resume.",
+        );
+    }
+
+    /**
+     * Rewrite a resume stronger, using its analysis (when there is one) and the profile as extra
+     * verified facts. Returns ['resume' => …, 'notes' => ['changes' => …, 'gaps' => …]].
+     */
+    public function improve(array $data, ?array $analysis, ?array $profile): array
+    {
+        $text = "<resume_information>\n".json_encode($data, JSON_PRETTY_PRINT)."\n</resume_information>\n\n"
+            .($profile ? "<professional_profile>\n".json_encode($profile, JSON_PRETTY_PRINT)."\n</professional_profile>\n\n" : '')
+            .($analysis ? "<recruiter_review>\n".json_encode($analysis, JSON_PRETTY_PRINT)."\n</recruiter_review>\n\n" : '')
+            .'Rewrite this resume as strongly as the facts allow.';
+
+        return $this->writeResume(
+            'You rewrite a job seeker\'s resume to make it as strong as possible for recruiters and applicant tracking systems. '
+            .'It will be scored again with this rubric, so earn every point the verified information allows; '
+            .'points that need facts you don\'t have go in gaps:'."\n".self::RUBRIC."\n"
+            .'Fix every point of the recruiter review that the verified information allows; the rest go in gaps. '
+            .'The professional profile, when given, is verified too and maintained by the candidate; where the two disagree, follow the profile. Preferences are not qualifications.',
+            $text,
+        );
+    }
+
+    private function writeResume(string $role, string $text): array
+    {
+        $result = $this->ask(
+            system: $role."\n".self::WRITING_RULES,
+            content: [['type' => 'text', 'text' => $text]],
+            schema: [
+                'type' => 'object',
+                'additionalProperties' => false,
+                'required' => ['resume', 'changes', 'gaps'],
+                'properties' => [
+                    'resume' => self::resumeSchema(),
+                    'changes' => ['type' => 'array', 'items' => self::object(['change' => self::STR, 'based_on' => self::STR])],
+                    'gaps' => self::STRS,
+                ],
+            ],
+            effort: 'high', // honesty and quality matter more than speed here
         );
 
         return ['resume' => $result['resume'], 'notes' => ['changes' => $result['changes'], 'gaps' => $result['gaps']]];

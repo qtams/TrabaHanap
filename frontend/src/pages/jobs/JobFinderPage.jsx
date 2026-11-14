@@ -9,6 +9,7 @@ import JobCard from './component/JobCard.jsx'
 import JobDetails from './component/JobDetails.jsx'
 import SearchForm from './component/SearchForm.jsx'
 import SearchHistory from './component/SearchHistory.jsx'
+import TieredResults from './component/TieredResults.jsx'
 import { getProfile } from '../../api/profile.js'
 import { searchFromResume } from './fromResume.js'
 import { describeSearch, emptySearch, externalLinks, formFromParams, searchParams } from './labels.js'
@@ -38,11 +39,11 @@ const AI = {
   compare: (job, resumeId) => jobsApi.compareWithResume(job.id, resumeId),
 }
 
-function JobGrid({ jobs, openId, onOpen, onToggleSave, empty }) {
+function JobGrid({ jobs, openId, onOpen, onToggleSave, empty, skills }) {
   if (!jobs.length) return <p className="rounded-lg border border-dashed border-line px-4 py-12 text-center text-[13px] text-muted">{empty}</p>
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      {jobs.map((job) => <JobCard key={job.id} job={job} selected={job.id === openId} onOpen={onOpen} onToggleSave={onToggleSave} />)}
+      {jobs.map((job) => <JobCard key={job.id} job={job} selected={job.id === openId} onOpen={onOpen} onToggleSave={onToggleSave} skills={skills} />)}
     </div>
   )
 }
@@ -92,7 +93,6 @@ export default function JobFinderPage() {
     const body = searchParams(params)
     const links = externalLinks(params)
     if (!params.sources.length) return toast.error('Pick at least one platform.')
-    if (![params.title, params.keywords, params.company].some((s) => s?.trim())) return toast.error('Enter a job title, keywords or a company.')
     setTab('search')
     // Only JobStreet / Indeed picked: nothing to search here, just the links to their sites.
     if (!body.sources) return setResults({ jobs: [], notes: [], links, title: `Search on ${links.map((l) => l.name).join(' and ')}` })
@@ -100,7 +100,7 @@ export default function JobFinderPage() {
     setBusy('search')
     try {
       const res = await jobsApi.searchJobs(body)
-      setResults({ ...res, links, title: `${res.jobs.length} ${res.jobs.length === 1 ? 'job' : 'jobs'} found` })
+      setResults({ ...res, links, title: `${res.jobs.length} ${res.jobs.length === 1 ? 'job' : 'jobs'}, most relevant first` })
       setSearches((list) => [res.search, ...list.filter((x) => x.id !== res.search.id)])
       res.notes.forEach((n) => toast.info(n))
     } catch (err) {
@@ -211,7 +211,6 @@ export default function JobFinderPage() {
               sources={sources}
               busy={busy === 'search'}
               suggested={suggested}
-              onUseSuggested={() => { setForm(suggested.form); search(suggested.form) }}
             />
             {results && (
               <section key={results.search?.id ?? results.title} className="drop-in space-y-3">
@@ -224,13 +223,21 @@ export default function JobFinderPage() {
                   )}
                 </div>
                 <ExternalLinks links={results.links} />
-                {(results.jobs.length > 0 || results.search) && (
-                  <JobGrid jobs={results.jobs} openId={openJob?.id} onOpen={setOpenJob} onToggleSave={toggleSave} empty="No jobs match here. Try fewer words, another location, or fewer filters." />
-                )}
+                <TieredResults
+                  key={results.search?.id ?? results.title}
+                  jobs={results.jobs}
+                  counts={results.counts}
+                  filtered={results.filtered}
+                  setups={form.work_setups}
+                  skills={form.keywords}
+                  openId={openJob?.id}
+                  onOpen={setOpenJob}
+                  onToggleSave={toggleSave}
+                />
               </section>
             )}
             {!results && busy === 'search' && (
-              <p className="flex items-center gap-2 text-[13px] text-muted"><FiLoader className="animate-spin" /> Finding jobs related to your resume…</p>
+              <p className="flex items-center gap-2 text-[13px] text-muted"><FiLoader className="animate-spin" /> Finding jobs for your profile…</p>
             )}
             {!results && busy !== 'search' && (
               <p className="text-[12px] text-muted">

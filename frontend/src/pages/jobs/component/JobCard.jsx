@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FiBookmark } from 'react-icons/fi'
+import { FiBookmark, FiCheck } from 'react-icons/fi'
 import { LEVELS, SETUPS, SOURCE_NAMES, TYPES, timeAgo } from '../labels.js'
 
 // Company logo, or its initials when there is none (or it fails to load).
@@ -39,9 +39,16 @@ export function SaveButton({ job, onToggle, className = '' }) {
   )
 }
 
+// Which of the searched skills the posting mentions ("React.js" counts as "React").
+const skillsIn = (job, skills) => {
+  const text = `${job.title} ${job.tags ?? ''} ${job.description ?? ''}`.toLowerCase()
+  return skills.filter((s) => text.includes(s.toLowerCase().replace(/\.js$/, '')))
+}
+
 // C. one listing. The title button covers the card, so a click anywhere opens the details.
-export default function JobCard({ job, selected, onOpen, onToggleSave }) {
+export default function JobCard({ job, selected, onOpen, onToggleSave, skills = [] }) {
   const meta = [job.salary_text, TYPES[job.employment_type], SETUPS[job.work_setup], LEVELS[job.experience_level]].filter(Boolean)
+  const mine = skillsIn(job, skills)
 
   return (
     <article className={`relative rounded-lg border p-4 transition-colors hover:border-subtle ${selected ? 'border-ink' : 'border-line'}`}>
@@ -64,6 +71,13 @@ export default function JobCard({ job, selected, onOpen, onToggleSave }) {
         </ul>
       )}
       <p className="mt-3 line-clamp-2 text-[13px] leading-relaxed text-muted">{job.description}</p>
+      {mine.length > 0 && (
+        <p className="mt-2.5 flex flex-wrap items-center gap-1 text-[12px]">
+          <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400"><FiCheck className="text-[11px]" /> Your skills:</span>
+          {mine.slice(0, 4).map((s) => <span key={s} className="rounded bg-hover px-1.5 py-0.5">{s}</span>)}
+          {mine.length > 4 && <span className="text-muted">+{mine.length - 4}</span>}
+        </p>
+      )}
       <p className="mt-3 flex items-center gap-2 text-[12px] text-muted">
         <SourceCredit job={job} />
         {job.posted_at && <><span aria-hidden="true">·</span><span>{timeAgo(job.posted_at)}</span></>}

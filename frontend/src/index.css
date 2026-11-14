@@ -108,12 +108,17 @@ body {
 .th-datepicker .react-datepicker__month-text--disabled:hover { background: transparent; }
 
 /* "Save as PDF" on a tailored resume prints only the .print-area (ResumeDocument), always in light colours. */
+/* "PDF" on a resume: printResume() (resumeFile.js) puts a copy of the sheet in #print-root and prints
+   only that, at the top of the page, with no browser header/footer (@page margin 0; the margin is
+   #print-root's padding), scaled to fit one page. */
+#print-root { display: none; }
 @media print {
   :root { color-scheme: light; }
-  .dark { --color-surface: #fff; --color-ink: #171717; --color-muted: #525252; --color-subtle: #737373; --color-line: #e5e5e5; }
-  body * { visibility: hidden; }
-  .print-area, .print-area * { visibility: visible; }
-  .print-area { position: absolute; inset: 0 auto auto 0; width: 100%; border: 0; padding: 0; }
+  body { margin: 0 !important; background: #fff !important; }
+  body > *:not(#print-root) { display: none !important; }
+  #print-root { display: block !important; }
+  #print-root .paper { max-width: none !important; box-shadow: none !important; --tw-ring-shadow: 0 0 #0000; }
+  #print-root .paper-page { padding: 0 !important; min-height: 0 !important; background-image: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {

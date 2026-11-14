@@ -31,3 +31,7 @@ export function errorMessage(err) {
   if (!err.response) return 'Cannot reach the server. Is php artisan serve running?'
   return err.response.data?.message || 'Something went wrong. Please try again.'
 }
+// The AI writes a resume from the Professional Profile (no file). Returns the new version.
+export const buildResume = () => api.post('/resume-builder').then((r) => r.data)
+// A stronger rewrite of this resume (uses its analysis), as a new version.
+export const improveResume = (id) => api.post(`/resumes/${id}/improve`).then((r) => r.data)

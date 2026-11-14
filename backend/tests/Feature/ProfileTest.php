@@ -41,15 +41,28 @@ class ProfileTest extends TestCase
     public function test_rejects_invalid_values(): void
     {
         $data = $this->data([
-            'personal' => ['email' => 'not-an-email', 'linkedin' => 'linkedin'],
-            'experience' => [['company' => '', 'title' => 'Dev']],
+            'personal' => ['email' => 'not-an-email'],
+            'experience' => [['company' => '', 'title' => '', 'start_date' => 'Jan 2022']],
             'preferences' => ['work_setups' => ['moon'], 'salary_min' => 60000, 'salary_max' => 40000],
         ]);
 
         $this->putJson('/api/profile', ['data' => $data])->assertUnprocessable()->assertJsonValidationErrors([
-            'data.personal.email', 'data.personal.linkedin', 'data.experience.0.company',
+            'data.personal.email', 'data.experience.0.title', // a job needs a title or a company
             'data.preferences.work_setups.0', 'data.preferences.salary_max',
         ]);
+    }
+
+    public function test_most_fields_are_optional(): void
+    {
+        $data = $this->data([
+            'personal' => ['linkedin' => 'linkedin.com/in/juan'], // no https:// needed
+            'experience' => [['company' => '', 'title' => 'Freelance Tutor'], ['company' => 'Acme', 'title' => '']],
+            'certifications' => [['name' => 'TESDA NC II', 'issuer' => '', 'date' => '', 'link' => '', 'description' => '']],
+            'education' => [['school' => '', 'degree' => 'Senior High School', 'field_of_study' => '', 'graduation_date' => '']],
+        ]);
+
+        $this->putJson('/api/profile', ['data' => $data])->assertOk()
+            ->assertJsonCount(2, 'data.experience')->assertJsonCount(1, 'data.education');
     }
 
     public function test_ignores_unknown_fields(): void
@@ -78,6 +91,16 @@ class ProfileTest extends TestCase
 
         $this->postJson('/api/profile/summary', ['data' => $data])->assertOk()->assertJsonPath('introduction', 'Developer at Acme.');
         $this->assertSame('', Profile::current()->data['summary']['introduction']);
+    }
+
+    public function test_blank_records_are_dropped(): void
+    {
+        $data = Profile::BLANK;
+        $data['certifications'] = [['name' => '', 'issuer' => '', 'date' => '', 'link' => '', 'description' => ''], ['name' => 'TESDA NC II', 'issuer' => '', 'date' => '', 'link' => '', 'description' => '']];
+        Profile::current()->update(['data' => $data]); // e.g. left by an older import
+
+        $this->getJson('/api/profile')->assertOk()->assertJsonCount(1, 'data.certifications')
+            ->assertJsonPath('data.certifications.0.name', 'TESDA NC II');
     }
 
     public function test_write_summary_needs_something_to_write_from(): void

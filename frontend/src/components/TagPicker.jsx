@@ -23,7 +23,7 @@ export function Chip({ children, onClick, label, tone = 'added' }) {
  * Text box with a suggestion list under it (combobox). options: [{ name, hint, isNew }].
  * Enter picks the highlighted option; without one, onEnter gets the typed text.
  */
-export function ComboInput({ query, onQuery, options, onPick, onEnter, placeholder, label }) {
+export function ComboInput({ query, onQuery, options, onPick, onEnter, placeholder, label, bare = false, onBackspace }) {
   const id = useId()
   const [active, setActive] = useState(0)
   const [open, setOpen] = useState(false)
@@ -40,6 +40,8 @@ export function ComboInput({ query, onQuery, options, onPick, onEnter, placehold
       if (shown && options[active]) onPick(options[active].name)
       else onEnter?.(query)
       setActive(0)
+    } else if (e.key === 'Backspace' && !query && onBackspace) {
+      onBackspace()
     } else if (e.key === 'Escape' && shown) {
       e.stopPropagation() // close the list, not the panel
       setOpen(false)
@@ -47,7 +49,7 @@ export function ComboInput({ query, onQuery, options, onPick, onEnter, placehold
   }
 
   return (
-    <div className="relative flex-1">
+    <div className={`relative flex-1 ${bare ? 'min-w-28' : ''}`}>
       <input
         aria-label={label}
         role="combobox"
@@ -61,7 +63,9 @@ export function ComboInput({ query, onQuery, options, onPick, onEnter, placehold
         onBlur={() => setOpen(false)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
-        className="w-full rounded-md border border-line bg-surface px-3 py-2 pr-8 text-[13px] outline-none placeholder:text-subtle focus:border-subtle"
+        className={bare
+          ? 'w-full bg-transparent px-1.5 py-1 pr-7 text-[13px] outline-none placeholder:text-subtle'
+          : 'w-full rounded-md border border-line bg-surface px-3 py-2 pr-8 text-[13px] outline-none placeholder:text-subtle focus:border-subtle'}
       />
       {query && (
         <button type="button" onClick={() => onQuery('')} aria-label="Clear" className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-subtle hover:text-ink">
@@ -86,6 +90,55 @@ export function ComboInput({ query, onQuery, options, onPick, onEnter, placehold
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+/**
+ * Several values in one input-looking box: chips, then the text box (matches from `names`).
+ * Backspace on an empty box removes the last chip. max: most chips allowed.
+ */
+export function ChipInput({ value, onChange, names, hintOf, placeholder, label, max = 5, allowCustom = true, normalize }) {
+  const [query, setQuery] = useState('')
+  const taken = useMemo(() => new Set(value.map(norm)), [value])
+  const matches = useMemo(() => rankMatches(query, names, taken, 6), [query, names, taken])
+  const full = value.length >= max
+  const canAddTyped = allowCustom && query.trim() && !taken.has(norm(query)) && !matches.some((m) => norm(m) === norm(query))
+  const options = full ? [] : [
+    ...matches.map((name) => ({ name, hint: hintOf?.(name) })),
+    ...(canAddTyped ? [{ name: query.trim(), isNew: true }] : []),
+  ]
+
+  const add = (name) => {
+    const clean = normalize ? normalize(name.trim()) : name.trim() // e.g. a long phrase → its key word
+    if (!clean || full || taken.has(norm(clean))) return
+    const listed = names.find((n) => norm(n) === norm(clean))
+    if (!listed && !allowCustom) return
+    onChange([...value, listed ?? clean])
+    setQuery('')
+  }
+
+  return (
+    <div className="flex min-h-[38px] flex-wrap items-center gap-1 rounded-md border border-line bg-surface px-1.5 py-1 focus-within:border-subtle">
+      {value.map((v) => (
+        <span key={v} className="drop-in inline-flex items-center gap-1 rounded bg-hover py-0.5 pr-1 pl-2 text-[12px]">
+          {v}
+          <button type="button" onClick={() => onChange(value.filter((x) => x !== v))} aria-label={`Remove ${v}`} className="rounded p-0.5 text-subtle hover:text-ink">
+            <FiX className="text-[11px]" />
+          </button>
+        </span>
+      ))}
+      <ComboInput
+        bare
+        query={query}
+        onQuery={setQuery}
+        options={options}
+        onPick={add}
+        onEnter={add}
+        onBackspace={() => value.length && onChange(value.slice(0, -1))}
+        placeholder={full ? `Up to ${max}` : value.length ? 'Add another…' : placeholder}
+        label={label}
+      />
     </div>
   )
 }

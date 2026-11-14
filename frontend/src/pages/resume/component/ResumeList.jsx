@@ -1,13 +1,16 @@
-import { FiFileText, FiZap } from 'react-icons/fi'
+import { FiFileText, FiStar, FiTrendingUp, FiZap } from 'react-icons/fi'
+import { aiKind } from '../resumeFile.js'
 
 const date = (iso) => new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
 
-// Versions list. Tailored versions show which job they were made for.
+// Versions list: uploaded files, and versions the AI wrote (built, improved, tailored to a job).
+const KIND = { built: [FiStar, 'Built by AI'], improved: [FiTrendingUp, 'Improved by AI'], tailored: [FiZap, 'AI tailored'] }
 export default function ResumeList({ resumes, selectedId, onSelect }) {
   return (
     <ul className="space-y-0.5">
       {resumes.map((r) => {
-        const Icon = r.tailored_from_id ? FiZap : FiFileText
+        const kind = aiKind(r)
+        const [Icon, label] = KIND[kind] ?? [FiFileText, r.file_name]
         return (
           <li key={r.id}>
             <button
@@ -20,7 +23,7 @@ export default function ResumeList({ resumes, selectedId, onSelect }) {
               <span className="min-w-0">
                 <span className="block truncate text-[13px] font-medium">{r.title}</span>
                 <span className="block truncate text-[12px] text-subtle">
-                  {r.tailored_from_id ? 'AI tailored' : r.file_name} · {date(r.created_at)}
+                  {label} · {date(r.created_at)}
                 </span>
               </span>
             </button>

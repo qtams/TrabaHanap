@@ -1,22 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
-import { FiDownload, FiEdit2, FiLoader, FiPrinter, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
+import { Link } from 'react-router-dom'
+import { FiDownload, FiEdit2, FiFileText, FiLoader, FiRefreshCw, FiStar, FiTrash2, FiTrendingUp } from 'react-icons/fi'
 import * as resumesApi from '../../api/resumes.js'
 import { confirm } from '../../lib/alerts.js'
 import { toast } from '../../lib/toast.js'
 import FilePreview from './component/FilePreview.jsx'
 import ResumeAnalysis from './component/ResumeAnalysis.jsx'
 import ResumeDocument from './component/ResumeDocument.jsx'
+import DownloadMenu from './component/DownloadMenu.jsx'
 import ResumeList from './component/ResumeList.jsx'
 import TailorForm from './component/TailorForm.jsx'
 import TailoringNotes from './component/TailoringNotes.jsx'
 import UploadDropzone from './component/UploadDropzone.jsx'
-import { ACCEPT, checkFile } from './resumeFile.js'
+import { ACCEPT, PAPER, aiKind, checkFile, savePaper, savedPaper } from './resumeFile.js'
 
 const BUSY_TEXT = {
   upload: 'Uploading…',
   extract: 'Reading your resume. This can take up to a minute.',
   analyze: 'Reviewing your resume. This can take up to a minute.',
   tailor: 'Tailoring your resume to the job. This can take up to two minutes.',
+  build: 'Writing your resume from your Professional Profile. This can take up to two minutes.',
+  improve: 'Rewriting your resume to make it stronger. This can take up to two minutes.',
 }
 const BTN = 'inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-hover disabled:opacity-50'
 const PRIMARY = 'rounded-md bg-ink px-3.5 py-2 text-[13px] font-medium text-on-ink hover:opacity-85 disabled:opacity-50'
@@ -29,10 +33,13 @@ export default function ResumePage() {
   const [tab, setTab] = useState('preview')
   const [busy, setBusy] = useState(null) // key of BUSY_TEXT while an action runs
   const [renaming, setRenaming] = useState(false)
+  const [paper, setPaper] = useState(savedPaper) // letter (short bond) | a4 | legal (long bond)
+  const choosePaper = (key) => { setPaper(key); savePaper(key) }
   const replaceInput = useRef(null)
 
   const selected = resumes?.find((r) => r.id === selectedId)
-  const tailored = Boolean(selected?.tailored_from_id)
+  const kind = selected ? aiKind(selected) : null // null = an uploaded file
+  const tailored = kind !== null // written by the AI: shown as a document, downloaded as PDF / Word
 
   useEffect(() => {
     resumesApi
@@ -119,6 +126,24 @@ export default function ResumePage() {
       put(await resumesApi.analyzeResume(selected.id))
     })
 
+  // No resume: the AI writes one from the Professional Profile.
+  async function build() {
+    const resume = await run('build', () => resumesApi.buildResume())
+    if (!resume) return
+    put(resume)
+    select(resume.id)
+    toast.success('Your resume is ready. Check it, then download it or make it stronger.')
+  }
+
+  // A stronger rewrite of this version, as a new version.
+  async function improve() {
+    const resume = await run('improve', () => resumesApi.improveResume(selected.id))
+    if (!resume) return
+    put(resume)
+    select(resume.id)
+    toast.success('Stronger version created. Analyze it to see the new score.')
+  }
+
   async function tailor(jobTitle, jobDescription) {
     const resume = await run('tailor', () => resumesApi.tailorResume(selected.id, jobTitle, jobDescription))
     if (!resume) return
@@ -131,20 +156,42 @@ export default function ResumePage() {
 
   if (resumes.length === 0) {
     return (
-      <div className="mx-auto max-w-xl pt-6">
-        <h2 className="text-xl font-semibold tracking-tight">Upload your resume</h2>
-        <p className="mt-1 mb-6 text-[13px] text-muted">
-          The AI reads it, pulls out your experience, skills and education, and tells you how to make it stronger.
-        </p>
-        <UploadDropzone onFile={upload} disabled={!!busy} />
+      <div className="mx-auto max-w-3xl pt-6">
+        <h2 className="text-xl font-semibold tracking-tight">Your resume</h2>
+        <p className="mt-1 mb-6 text-[13px] text-muted">Upload the one you have, or let the AI write one for you.</p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="drop-in space-y-3 rounded-lg border border-line p-5">
+            <p className="flex items-center gap-2 text-[14px] font-medium"><FiFileText /> I have a resume</p>
+            <p className="text-[13px] text-muted">The AI reads it, pulls out your experience, skills and education, and tells you how to make it stronger.</p>
+            <UploadDropzone onFile={upload} disabled={!!busy} />
+          </div>
+          <div className="drop-in flex flex-col gap-3 rounded-lg border border-line p-5">
+            <p className="flex items-center gap-2 text-[14px] font-medium"><FiStar /> I don’t have one yet</p>
+            <p className="text-[13px] text-muted">
+              The AI writes a complete, professional resume from your <Link to="/profile" className="underline underline-offset-2 hover:text-ink">Professional Profile</Link>: strong summary, clear bullets, your skills. It never adds anything you didn’t write.
+            </p>
+            <ol className="list-decimal space-y-1 pl-5 text-[12px] text-muted marker:text-subtle">
+              <li>Fill in your work experience, education and skills in your profile.</li>
+              <li>Come back and build your resume.</li>
+              <li>Download it as PDF or Word.</li>
+            </ol>
+            <button onClick={build} disabled={!!busy} className={`${PRIMARY} mt-auto inline-flex items-center justify-center gap-1.5`}>
+              <FiStar /> Build my resume with AI
+            </button>
+          </div>
+        </div>
         {busy && <p className="mt-4 flex items-center gap-2 text-[13px] text-muted"><FiLoader className="animate-spin" /> {BUSY_TEXT[busy]}</p>}
       </div>
     )
   }
 
-  const tabs = tailored
-    ? [['preview', 'Resume'], ['analysis', 'Analysis']]
-    : [['preview', 'Preview'], ['info', 'Information'], ['analysis', 'Analysis'], ['tailor', 'Tailor to a job']]
+  const notesCount = (selected?.tailoring_notes?.gaps?.length ?? 0) + (selected?.tailoring_notes?.changes?.length ?? 0)
+  const notesTab = ['notes', `AI notes${notesCount ? ` (${notesCount})` : ''}`]
+  const tabs = kind === 'tailored'
+    ? [['preview', 'Resume'], notesTab, ['analysis', 'Analysis']]
+    : tailored
+      ? [['preview', 'Resume'], notesTab, ['analysis', 'Analysis'], ['tailor', 'Tailor to a job']]
+      : [['preview', 'Preview'], ['info', 'Information'], ['analysis', 'Analysis'], ['tailor', 'Tailor to a job']]
 
   return (
     <div className="grid gap-8 lg:grid-cols-[240px_1fr]">
@@ -152,6 +199,9 @@ export default function ResumePage() {
         <p className="px-1 text-[12px] font-medium text-subtle">Versions</p>
         <ResumeList resumes={resumes} selectedId={selectedId} onSelect={select} />
         <UploadDropzone compact onFile={upload} disabled={!!busy} label="Upload new version" />
+        <button onClick={build} disabled={!!busy} className={`${BTN} w-full justify-center`} title="Write a resume from your Professional Profile">
+          <FiStar /> Build one with AI
+        </button>
       </aside>
 
       {selected && (
@@ -177,9 +227,7 @@ export default function ResumePage() {
 
             <div className="ml-auto flex flex-wrap gap-2">
               {tailored ? (
-                <button onClick={() => window.print()} className={BTN} disabled={!selected.data}>
-                  <FiPrinter /> Save as PDF
-                </button>
+                <DownloadMenu data={selected.data} title={selected.title} paper={paper} disabled={!selected.data || !!busy} />
               ) : (
                 <>
                   <a href={resumesApi.resumeDownloadUrl(selected.id)} className={BTN}>
@@ -220,9 +268,13 @@ export default function ResumePage() {
                 tab={tab}
                 resume={selected}
                 tailored={tailored}
+                previousScore={resumes.find((r) => r.id === selected.tailored_from_id)?.analysis?.overall_score}
+                paper={paper}
+                onPaper={choosePaper}
                 busy={!!busy}
                 onExtract={() => extract(selected.id)}
                 onAnalyze={analyze}
+                onImprove={improve}
                 onTailor={tailor}
               />
             )}
@@ -242,14 +294,67 @@ function Empty({ text, action, onClick, disabled }) {
   )
 }
 
-function TabContent({ tab, resume, tailored, busy, onExtract, onAnalyze, onTailor }) {
+// After the analysis: one click for a stronger rewrite.
+function ImproveCard({ resume, busy, onImprove }) {
+  const score = resume.analysis?.overall_score
+  return (
+    <div className="drop-in flex flex-wrap items-center gap-4 rounded-lg border border-line bg-hover/40 p-4">
+      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-on-ink"><FiTrendingUp /></span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] font-medium">{score >= 90 ? 'Already strong. Polish it further?' : 'Make it stronger with AI'}</p>
+        <p className="mt-0.5 text-[12px] text-muted">
+          Rewrites your resume using these suggestions: stronger summary, action-verb bullets, best order. Saved as a new version; this one stays. It never invents experience, numbers or skills, and lists what you could add.
+        </p>
+      </div>
+      <button onClick={onImprove} disabled={busy} className={`${PRIMARY} inline-flex items-center gap-1.5`}>
+        <FiTrendingUp /> Make it stronger
+      </button>
+    </div>
+  )
+}
+
+// Paper size for the sheet, PDF and Word: short bond (Letter), A4, long bond (Legal).
+function PaperPicker({ value, onChange }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[12px] text-subtle">Paper</span>
+      <div role="radiogroup" aria-label="Paper size" className="inline-flex rounded-md border border-line p-0.5">
+        {Object.entries(PAPER).map(([key, p]) => (
+          <button
+            key={key}
+            type="button"
+            role="radio"
+            aria-checked={value === key}
+            title={p.hint}
+            onClick={() => onChange(key)}
+            className={`rounded px-2.5 py-1 text-[12px] transition-colors ${value === key ? 'bg-ink font-medium text-on-ink' : 'text-muted hover:text-ink'}`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <span className="text-[12px] text-subtle">{PAPER[value].hint}</span>
+    </div>
+  )
+}
+
+function TabContent({ tab, resume, tailored, previousScore, paper, onPaper, busy, onExtract, onAnalyze, onImprove, onTailor }) {
   const needsExtract = <Empty text="The AI hasn't read this resume yet." action="Extract information" onClick={onExtract} disabled={busy} />
 
   if (tab === 'preview') {
     if (!tailored) return <FilePreview key={`${resume.id}-${resume.file_name}`} resume={resume} />
     return (
-      <div className="grid gap-8 xl:grid-cols-[1fr_280px]">
-        <ResumeDocument data={resume.data} />
+      <div className="space-y-3">
+        <PaperPicker value={paper} onChange={onPaper} />
+        <ResumeDocument data={resume.data} paper={paper} />
+        <p className="text-[12px] text-subtle">The faint line marks where a page ends. PDF and Word use this paper size. What the AI changed and what you could add are in AI notes.</p>
+      </div>
+    )
+  }
+
+  if (tab === 'notes') {
+    return (
+      <div className="max-w-2xl">
         <TailoringNotes resume={resume} />
       </div>
     )
@@ -263,7 +368,8 @@ function TabContent({ tab, resume, tailored, busy, onExtract, onAnalyze, onTailo
           <p className="text-[12px] text-subtle">Extracted by AI. Check it matches your resume before tailoring.</p>
           <button onClick={onExtract} disabled={busy} className="text-[12px] text-muted underline-offset-4 hover:text-ink hover:underline">Extract again</button>
         </div>
-        <ResumeDocument data={resume.data} />
+        <PaperPicker value={paper} onChange={onPaper} />
+        <ResumeDocument data={resume.data} paper={paper} />
       </div>
     )
   }
@@ -276,7 +382,8 @@ function TabContent({ tab, resume, tailored, busy, onExtract, onAnalyze, onTailo
         <div className="flex justify-end">
           <button onClick={onAnalyze} disabled={busy} className="text-[12px] text-muted underline-offset-4 hover:text-ink hover:underline">Analyze again</button>
         </div>
-        <ResumeAnalysis analysis={resume.analysis} />
+        <ImproveCard resume={resume} busy={busy} onImprove={onImprove} />
+        <ResumeAnalysis analysis={resume.analysis} previous={previousScore} />
       </div>
     )
   }

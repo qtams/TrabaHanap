@@ -45,6 +45,19 @@ export function suggestSkills(p, taken) {
   return unique([...found, ...related, ...byRole], taken, 24).filter((s) => !have.has(loose(s))).slice(0, 12)
 }
 
+const TECH_TITLE = /develop|engineer|programm|software|devops|web|front.?end|back.?end|full.?stack|data scien|data engineer|machine learning|\bit\b|qa |tester|sysadmin|system admin|ui|ux|designer/i
+
+/**
+ * Does this profile look like tech work (developers, engineers, IT, designers)? Then the page shows
+ * GitHub / portfolio and "Technologies"; for everyone else it uses general wording.
+ */
+export function isTechProfile(p) {
+  const titles = [...(p.experience ?? []).map((j) => j.title), ...(p.preferences?.job_titles ?? [])].join(' ')
+  const s = p.skills ?? {}
+  const techSkills = ['programming_languages', 'frontend', 'backend', 'databases', 'frameworks'].reduce((n, k) => n + (s[k]?.length ?? 0), 0)
+  return TECH_TITLE.test(titles) || techSkills >= 2
+}
+
 /** Listed skills a piece of text names (e.g. one job's bullets), for its "Technologies used". */
 export function skillsIn(texts, taken = []) {
   const text = texts.filter(Boolean).join('\n')

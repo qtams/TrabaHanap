@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToUser;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * The user's structured professional background (My Professional Profile).
@@ -10,6 +12,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class Profile extends Model
 {
+    use BelongsToUser;
+
     // Every section with its empty value. List items have no blank: the frontend adds them.
     public const BLANK = [
         'personal' => ['full_name' => '', 'email' => '', 'phone' => '', 'location' => '', 'linkedin' => '', 'github' => '', 'portfolio' => ''],
@@ -37,17 +41,26 @@ class Profile extends Model
         return ['data' => 'array', 'synced_at' => 'datetime'];
     }
 
-    // TODO when auth lands: take the user and scope by user_id.
+    /** The signed-in user's profile (created blank on first use). */
     public static function current(): self
     {
-        return self::firstOrCreate(['user_id' => null], ['data' => self::BLANK]);
+        return self::firstOrCreate(['user_id' => Auth::id()], ['data' => self::BLANK]);
     }
 
     // Stored data on top of BLANK, so every key always exists (older rows, partial imports).
     public function getDataAttribute($value): array
     {
-        $data = is_array($value) ? $value : (json_decode($value ?? '[]', true) ?: []);
+        $data = array_replace_recursive(self::BLANK, is_array($value) ? $value : (json_decode($value ?? '[]', true) ?: []));
 
-        return array_replace_recursive(self::BLANK, $data);
+        // Drop blank records ("Untitled certification" left by an Add that was never filled in).
+        $named = fn (array $list, array $keys) => array_values(array_filter(
+            $list, fn ($item) => collect($keys)->contains(fn ($k) => trim((string) ($item[$k] ?? '')) !== ''),
+        ));
+        $data['experience'] = $named($data['experience'], ['company', 'title']);
+        $data['education'] = $named($data['education'], ['school', 'degree']);
+        $data['certifications'] = $named($data['certifications'], ['name']);
+        $data['projects'] = $named($data['projects'], ['name']);
+
+        return $data;
     }
 }

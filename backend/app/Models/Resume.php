@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToUser;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 
 class Resume extends Model
 {
+    use BelongsToUser;
+
     protected $fillable = [
         'user_id', 'title', 'file_path', 'file_name', 'mime_type', 'file_size',
         'data', 'analysis', 'extracted_at', 'analyzed_at',

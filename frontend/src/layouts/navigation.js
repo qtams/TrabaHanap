@@ -1,9 +1,9 @@
 import {
   FiBarChart2, FiCalendar, FiClock, FiFileText, FiGrid, FiLink,
-  FiMail, FiSearch, FiSend, FiSliders, FiTarget, FiUser,
+  FiMail, FiSearch, FiSend, FiSliders, FiTarget, FiUser, FiUsers,
 } from 'react-icons/fi'
 
-// Single source for the sidebar, the header title and the route table (App.jsx).
+// Single source for the sidebar (items with admin: true only show to admins), the header title and the route table (App.jsx).
 export const NAV_GROUPS = [
   { label: '', items: [{ label: 'Dashboard', path: '/', icon: FiGrid }] }, // no heading: sits on top
   {
@@ -35,6 +35,7 @@ export const NAV_GROUPS = [
     items: [
       { label: 'AI Settings', path: '/ai-settings', icon: FiSliders },
       { label: 'Integrations', path: '/integrations', icon: FiLink },
+      { label: 'Users', path: '/users', icon: FiUsers, admin: true }, // admins only
     ],
   },
 ]

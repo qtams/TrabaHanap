@@ -44,7 +44,7 @@ export default function PlatformPicker({ value, onChange, sources }) {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-2 text-[13px] hover:bg-hover"
+        className="inline-flex h-11 items-center gap-1.5 rounded-lg border border-line px-3.5 text-[13px] hover:bg-hover"
       >
         {label} <FiChevronDown className={`text-subtle transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>

@@ -8,13 +8,16 @@ const INPUT =
 
 // group: the field holds several controls (chips, pickers). A <label> would forward clicks on its
 // text to the first button inside, so those use a plain wrapper.
-export function Field({ label, hint, children, className = '', group = false }) {
+// error: a message from the server; the field's inputs get a red border and the message shows below.
+export function Field({ label, hint, children, className = '', group = false, error }) {
   const Tag = group ? 'div' : 'label'
+  const red = error ? '[&_input]:border-red-500 [&_select]:border-red-500 [&_textarea]:border-red-500' : ''
   return (
-    <Tag className={`block ${className}`}>
-      <span className="text-[13px] font-medium">{label}</span>
+    <Tag className={`block ${className} ${red}`} data-error={error ? 'true' : undefined}>
+      <span className={`text-[13px] font-medium ${error ? 'text-red-600 dark:text-red-400' : ''}`}>{label}</span>
       {hint && <span className="ml-1.5 text-[12px] text-subtle">{hint}</span>}
       <div className="mt-1.5">{children}</div>
+      {error && <span className="drop-in mt-1 block text-[12px] text-red-600 dark:text-red-400">{error}</span>}
     </Tag>
   )
 }

@@ -1,11 +1,14 @@
 import { NavLink } from 'react-router-dom'
 import { FiX } from 'react-icons/fi'
+import { useAuth } from '../auth/context.js'
 import { NAV_GROUPS } from '../layouts/navigation.js'
 
 // Desktop: fixed, and `collapsed` shrinks it to icons only (hover an icon for its name).
 // Mobile: slide-in drawer, always full width (open/onClose come from MainLayout).
 export default function Sidebar({ open, collapsed, onClose }) {
   const hideWhenCollapsed = collapsed ? 'lg:hidden' : ''
+  const isAdmin = useAuth()?.user?.role === 'admin'
+  const groups = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !i.admin || isAdmin) })).filter((g) => g.items.length)
 
   return (
     <>
@@ -27,7 +30,7 @@ export default function Sidebar({ open, collapsed, onClose }) {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {NAV_GROUPS.map((group) => (
+          {groups.map((group) => (
             <div key={group.label} className="mt-3 first:mt-1">
               {group.label && (
                 <>

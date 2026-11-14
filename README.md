@@ -51,6 +51,14 @@ cd ../frontend
 npm install
 ```
 
+## Accounts and the Users module (`/login`, `/users`)
+
+- Everything except `/api/health` and `/api/login` needs a signed-in user (Sanctum SPA session cookie; the SPA calls `GET /sanctum/csrf-cookie` before `POST /api/login`). Sign in with username or email.
+- Create the first admin in a terminal: `cd backend && php artisan app:create-admin` (asks for name, username, email, password).
+- Roles: `admin` sees **Users** (sidebar, `/users`, `/api/users`) and can add, edit, deactivate and delete accounts; `user` can't. Inactive accounts can't sign in. An admin can't demote, deactivate or delete themselves.
+- `SANCTUM_STATEFUL_DOMAINS` in `backend/.env` must list the frontend origin (dev: `localhost:5173,127.0.0.1:5173`).
+- **Each account has its own data.** Resumes, the profile and search history use the `BelongsToUser` trait (`app/Models/Concerns`): queries only see the signed-in user's rows (another user's id is a 404) and new rows get their `user_id`. Job postings are shared public listings; what each user does with one (saved, AI results) is their `UserJob`, shown on the posting as `saved_at`, `analysis`, `compatibility`, `resume_comparison`.
+
 ## Adding a feature (example: job posts)
 
 Note: Laravel already uses a `jobs` table for its queue, so don't name a model `Job`.
@@ -73,7 +81,7 @@ preview and download still work, and the AI buttons show "ANTHROPIC_API_KEY is n
 
 - Backend: `ResumeController` + `routes/api.php`; files are stored privately in `storage/app/private/resumes`. Tests: `tests/Feature/ResumeTest.php` (Claude is mocked).
 - Frontend: `src/api/resumes.js`, `src/pages/resume/`.
-- No auth yet: every resume is visible to anyone who can reach the API. Scope by user once login exists (see the TODO in `ResumeController`).
+- Signed-in users only; each account sees only its own resumes (see "Accounts" below).
 
 ## Professional profile (`/profile`)
 

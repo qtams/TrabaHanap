@@ -24,7 +24,8 @@ function List({ title, items }) {
   )
 }
 
-export default function ResumeAnalysis({ analysis }) {
+// previous: the score of the version this one was made from (shows "was 64 → now 82").
+export default function ResumeAnalysis({ analysis, previous }) {
   const order = { high: 0, medium: 1, low: 2 }
   const suggestions = [...(analysis.suggestions ?? [])].sort((a, b) => order[a.priority] - order[b.priority])
 
@@ -34,6 +35,11 @@ export default function ResumeAnalysis({ analysis }) {
         <div className="shrink-0 text-center">
           <p className="text-4xl font-semibold tracking-tight tabular-nums">{analysis.overall_score}</p>
           <p className="text-[12px] text-subtle">out of 100</p>
+          {previous != null && (
+            <p className={`drop-in mt-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${analysis.overall_score >= previous ? 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'}`}>
+              was {previous} {analysis.overall_score >= previous ? '↑' : '↓'}
+            </p>
+          )}
         </div>
         <p className="text-[14px] leading-relaxed">{analysis.verdict}</p>
       </div>
@@ -44,10 +50,10 @@ export default function ResumeAnalysis({ analysis }) {
             <div>
               <div className="flex items-baseline justify-between text-[13px] font-medium sm:block">
                 {CRITERIA[c.key] ?? c.key}
-                <span className="text-muted tabular-nums sm:ml-2">{c.score}/10</span>
+                <span className="text-muted tabular-nums sm:ml-2">{c.score}/{c.max ?? 10}</span>
               </div>
               <div className="mt-1.5 h-1 w-full rounded-full bg-hover sm:w-32">
-                <div className="h-full rounded-full bg-ink" style={{ width: `${Math.min(10, Math.max(0, c.score)) * 10}%` }} />
+                <div className="h-full rounded-full bg-ink" style={{ width: `${(Math.min(c.max ?? 10, Math.max(0, c.score)) / (c.max ?? 10)) * 100}%` }} />
               </div>
             </div>
             <p className="text-[13px] leading-relaxed text-muted">{c.assessment}</p>

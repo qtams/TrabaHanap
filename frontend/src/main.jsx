@@ -7,6 +7,7 @@ import 'aos/dist/aos.css'
 import 'react-datepicker/dist/react-datepicker.css' // before index.css, which restyles it
 import './index.css'
 import App from './App.jsx'
+import AuthProvider from './auth/AuthProvider.jsx'
 import { dropIn } from './lib/toast.js'
 
 AOS.init({ once: true, duration: 500 })
@@ -14,7 +15,9 @@ AOS.init({ once: true, duration: 500 })
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </BrowserRouter>
     <ToastContainer position="top-right" transition={dropIn} autoClose={3000} newestOnTop hideProgressBar theme="light" />
   </StrictMode>,

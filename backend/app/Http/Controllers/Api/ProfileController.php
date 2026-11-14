@@ -24,7 +24,7 @@ class ProfileController extends Controller
         $text = ['nullable', 'string', 'max:5000'];
         $list = ['array'];
         $item = ['string', 'max:500'];
-        $url = ['nullable', 'url', 'max:255'];
+        $url = ['nullable', 'string', 'max:255']; // links: "github.com/me" is fine too, no https:// needed
 
         $valid = $request->validate([
             'data' => ['required', 'array'],
@@ -38,7 +38,9 @@ class ProfileController extends Controller
             'data.summary.employment_status' => ['nullable', Rule::in(['', 'employed', 'unemployed', 'freelancing', 'student'])],
 
             'data.experience' => $list,
-            'data.experience.*.company' => ['required', 'string', 'max:255'], 'data.experience.*.title' => ['required', 'string', 'max:255'],
+            // A job needs a title or a company; everything else is optional. Fully blank entries are dropped (Profile::data).
+            'data.experience.*.company' => $s,
+            'data.experience.*.title' => ['nullable', 'required_without:data.experience.*.company', 'string', 'max:255'],
             'data.experience.*.employment_type' => ['nullable', Rule::in(['', ...self::EMPLOYMENT_TYPES])],
             'data.experience.*.start_date' => $s, 'data.experience.*.end_date' => $s,
             'data.experience.*.responsibilities' => $list, 'data.experience.*.responsibilities.*' => ['string', 'max:1000'],
@@ -46,17 +48,17 @@ class ProfileController extends Controller
             'data.experience.*.technologies' => $list, 'data.experience.*.technologies.*' => $item,
 
             'data.education' => $list,
-            'data.education.*.school' => ['required', 'string', 'max:255'], 'data.education.*.degree' => $s,
+            'data.education.*.school' => $s, 'data.education.*.degree' => $s,
             'data.education.*.field_of_study' => $s, 'data.education.*.graduation_date' => $s,
 
             'data.skills' => ['array'], 'data.skills.*' => $list, 'data.skills.*.*' => $item,
 
             'data.certifications' => $list,
-            'data.certifications.*.name' => ['required', 'string', 'max:255'], 'data.certifications.*.issuer' => $s,
+            'data.certifications.*.name' => $s, 'data.certifications.*.issuer' => $s,
             'data.certifications.*.date' => $s, 'data.certifications.*.link' => $url, 'data.certifications.*.description' => $text,
 
             'data.projects' => $list,
-            'data.projects.*.name' => ['required', 'string', 'max:255'], 'data.projects.*.description' => $text,
+            'data.projects.*.name' => $s, 'data.projects.*.description' => $text,
             'data.projects.*.date' => $s, 'data.projects.*.link' => $url,
             'data.projects.*.technologies' => $list, 'data.projects.*.technologies.*' => $item,
 
@@ -69,6 +71,15 @@ class ProfileController extends Controller
             'data.preferences.salary_max' => ['nullable', 'integer', 'min:0', 'gte:data.preferences.salary_min'],
             'data.preferences.salary_currency' => ['nullable', 'string', 'size:3'],
             'data.preferences.experience_level' => ['nullable', Rule::in(['', 'entry', 'junior', 'mid', 'senior', 'lead'])],
+        ], [], [
+            // Names in error messages ("The email address field must be…", not "data.personal.email").
+            'data.personal.full_name' => 'full name', 'data.personal.email' => 'email address', 'data.personal.phone' => 'phone number',
+            'data.personal.location' => 'location', 'data.personal.linkedin' => 'LinkedIn', 'data.personal.github' => 'GitHub',
+            'data.personal.portfolio' => 'website', 'data.summary.years_experience' => 'years of experience',
+            'data.experience.*.company' => 'company name', 'data.experience.*.title' => 'job title',
+            'data.education.*.school' => 'school', 'data.certifications.*.name' => 'name', 'data.projects.*.name' => 'name',
+            'data.preferences.salary_min' => 'expected salary', 'data.preferences.salary_max' => 'maximum salary',
+            'data.preferences.work_setups.*' => 'work setup', 'data.preferences.employment_types.*' => 'employment type',
         ]);
 
         $profile = Profile::current();

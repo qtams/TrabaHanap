@@ -53,7 +53,9 @@ class Himalayas implements JobSource
         }
 
         $jobs = [];
-        for ($page = 1; $page <= self::PAGES; $page++) {
+        // pages: how deep to go (the "every job" fetch asks for more; capped to stay polite).
+        $pages = min((int) ($params['pages'] ?? self::PAGES), 8);
+        for ($page = 1; $page <= $pages; $page++) {
             $batch = $this->page($query, $page) ?? [];
             foreach ($batch as $job) {
                 $jobs[$job['guid']] = $job; // results can shift between pages

@@ -96,6 +96,34 @@ class ResumeTest extends TestCase
         $this->postJson("/api/resumes/{$resume->id}/analyze")->assertOk()->assertJsonPath('analysis.overall_score', 72);
     }
 
+    public function test_build_writes_a_resume_from_the_profile(): void
+    {
+        $this->postJson('/api/resume-builder')->assertUnprocessable(); // empty profile: nothing to build from
+
+        $data = \App\Models\Profile::BLANK;
+        $data['personal']['full_name'] = 'Juan';
+        $data['experience'] = [['company' => 'Acme', 'title' => 'Cashier', 'employment_type' => '', 'start_date' => '', 'end_date' => '', 'responsibilities' => [], 'achievements' => [], 'technologies' => []]];
+        \App\Models\Profile::current()->update(['data' => $data]);
+        $this->mock(ResumeAi::class)->shouldReceive('build')->once()
+            ->andReturn(['resume' => ['full_name' => 'Juan'], 'notes' => ['changes' => [], 'gaps' => ['Add a number']]]);
+
+        $this->postJson('/api/resume-builder')->assertCreated()
+            ->assertJsonPath('title', 'Juan resume (built by AI)')->assertJsonPath('file_path', null)
+            ->assertJsonPath('tailoring_notes.kind', 'built')->assertJsonPath('data.full_name', 'Juan');
+    }
+
+    public function test_improve_creates_a_stronger_version(): void
+    {
+        $resume = $this->upload();
+        $resume->update(['data' => ['full_name' => 'Juan'], 'analysis' => ['overall_score' => 60]]);
+        $this->mock(ResumeAi::class)->shouldReceive('improve')->once()->with(['full_name' => 'Juan'], ['overall_score' => 60], null)
+            ->andReturn(['resume' => ['full_name' => 'Juan'], 'notes' => ['changes' => [['change' => 'x', 'based_on' => 'y']], 'gaps' => []]]);
+
+        $this->postJson("/api/resumes/{$resume->id}/improve")->assertCreated()
+            ->assertJsonPath('tailored_from_id', $resume->id)->assertJsonPath('tailoring_notes.kind', 'improved')
+            ->assertJsonPath('title', "{$resume->title} (improved)");
+    }
+
     public function test_analyze_and_tailor_need_extracted_info_first(): void
     {
         $resume = $this->upload();

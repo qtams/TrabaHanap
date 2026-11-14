@@ -7,6 +7,7 @@ use App\Models\JobSearch;
 use App\Models\Profile;
 use App\Models\Resume;
 use App\Services\JobAi;
+use App\Services\JobFinder;
 use App\Services\JobSources\Normalize;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -51,29 +52,133 @@ class JobFinderTest extends TestCase
         ]);
     }
 
+    /** Run a Remotive search; the titles in each tier (match / related / other), in the order returned. */
+    private function tiers(array $params): array
+    {
+        $by = ['match' => [], 'related' => [], 'fits' => [], 'other' => []];
+        foreach ($this->postJson('/api/job-search', ['sources' => ['remotive'], ...$params])->assertOk()->json('jobs') as $job) {
+            $by[$job['tier']][] = $job['title'];
+        }
+
+        return $by;
+    }
+
+    /** The matching titles, sorted. */
+    private function matching(array $params): array
+    {
+        $titles = $this->tiers($params)['match'];
+        sort($titles);
+
+        return $titles;
+    }
+
     public function test_searches_remotive_and_stores_results_and_history(): void
     {
         $res = $this->postJson('/api/job-search', ['title' => 'react', 'sources' => ['remotive']])->assertOk();
 
-        $res->assertJsonCount(1, 'jobs')->assertJsonPath('jobs.0.title', 'Senior React Developer')
+        $res->assertJsonPath('jobs.0.title', 'Senior React Developer')->assertJsonPath('jobs.0.tier', 'match')
             ->assertJsonPath('jobs.0.source', 'remotive')
             ->assertJsonPath('jobs.0.work_setup', 'remote')
             ->assertJsonPath('jobs.0.experience_level', 'senior')
             ->assertJsonPath('jobs.0.salary_min', 5000) // 60k a year, as monthly
             ->assertJsonPath('jobs.0.salary_period', 'year')
-            ->assertJsonPath('jobs.0.description', "Build UIs.\n• React\n• TypeScript");
-        $this->assertSame(1, JobSearch::first()->jobs()->count());
-        $this->getJson('/api/job-searches')->assertJsonCount(1)->assertJsonPath('0.params.title', 'react');
+            ->assertJsonPath('jobs.0.description', "Build UIs.\n• React\n• TypeScript")
+            ->assertJsonPath('counts', ['match' => 1, 'related' => 0, 'fits' => 0, 'other' => 1])->assertJsonPath('filtered', false); // the PHP job is still listed, last
+        $this->assertSame(1, JobSearch::first()->jobs()->count()); // history keeps the matches
+        $this->getJson('/api/job-searches')->assertJsonCount(1)->assertJsonPath('0.params.titles', ['react']);
     }
 
-    public function test_needs_a_title_keywords_or_company(): void
+    public function test_empty_search_lists_every_job(): void
     {
-        $this->postJson('/api/job-search', ['location' => 'Manila'])->assertUnprocessable();
+        // Nothing searched, no profile yet: nothing counts as related, so it's just every job, newest first.
+        $this->assertSame(['match' => [], 'related' => [], 'fits' => [], 'other' => ['Senior React Developer', 'Junior PHP Developer']], $this->tiers([]));
+    }
+
+    public function test_empty_search_puts_jobs_related_to_the_profile_first(): void
+    {
+        $data = Profile::BLANK;
+        $data['preferences']['job_titles'] = ['PHP Developer'];
+        $data['skills']['frameworks'] = ['Laravel'];
+        Profile::current()->update(['data' => $data]);
+
+        $this->assertSame(['match' => [], 'related' => ['Junior PHP Developer'], 'fits' => [], 'other' => ['Senior React Developer']], $this->tiers([]));
+    }
+
+    public function test_with_filters_only_jobs_that_fit_are_listed(): void
+    {
+        // A search plus a filter: matching and closely related jobs only, never "everything else".
+        $res = $this->postJson('/api/job-search', ['titles' => ['React Developer'], 'employment_types' => ['full_time'], 'sources' => ['remotive']]);
+        $res->assertJsonPath('filtered', true)->assertJsonPath('counts.other', 0)->assertJsonPath('counts.match', 1);
+        $this->assertSame([], $this->tiers(['titles' => ['React Developer'], 'employment_types' => ['full_time']])['other']);
+
+        // Only a filter (nothing searched, no profile): the jobs that fit it.
+        $this->assertSame(['match' => [], 'related' => [], 'fits' => ['Junior PHP Developer'], 'other' => []], $this->tiers(['employment_types' => ['contract']]));
+    }
+
+    public function test_several_titles_and_locations_match_any(): void
+    {
+        $this->assertSame(['Junior PHP Developer', 'Senior React Developer'], $this->matching(['titles' => ['react', 'php']]));
+        // "Anywhere in the Philippines" is the whole country; the Worldwide job fits, the USA-only one doesn't.
+        $this->assertSame(['Senior React Developer'], $this->matching(['titles' => ['developer'], 'locations' => ['Anywhere in the Philippines', 'Makati']]));
+    }
+
+    public function test_typed_query_replaces_job_titles(): void
+    {
+        $this->assertSame(['Junior PHP Developer'], $this->matching(['query' => 'php', 'titles' => ['React Developer']]));
+
+        // Nothing for the query or like it: every job is still listed, under "other", newest first.
+        $this->assertSame(['match' => [], 'related' => [], 'fits' => [], 'other' => ['Senior React Developer', 'Junior PHP Developer']],
+            $this->tiers(['query' => 'welder', 'titles' => ['React Developer']]));
+        // Among the others, the ones that mention their skills come first.
+        $this->assertSame(['Junior PHP Developer', 'Senior React Developer'], $this->tiers(['query' => 'welder', 'keywords' => ['Laravel']])['other']);
+    }
+
+    public function test_keyword_list_matches_any_skill(): void
+    {
+        $this->assertSame(['Junior PHP Developer', 'Senior React Developer'], $this->matching(['keywords' => ['React.js', 'Laravel']]));
+        $this->assertSame(['Junior PHP Developer'], $this->matching(['keywords' => ['Laravel', 'Cobol']]));
+
+        // With job titles, skills don't filter: adding or removing one never hides a job.
+        $this->assertSame(['Junior PHP Developer', 'Senior React Developer'], $this->matching(['titles' => ['developer'], 'keywords' => ['Cobol']]));
+        $this->assertSame(['Junior PHP Developer', 'Senior React Developer'], $this->matching(['titles' => ['developer'], 'keywords' => []]));
+    }
+
+    public function test_related_jobs_are_similar_roles_not_already_listed(): void
+    {
+        // No "Frontend Developer" with kubernetes; nobody mentions kubernetes, so similar titles count.
+        $this->assertSame(['match' => [], 'related' => ['Senior React Developer', 'Junior PHP Developer'], 'fits' => [], 'other' => []],
+            $this->tiers(['titles' => ['Frontend Developer'], 'keywords' => 'kubernetes']));
+
+        // A match is never repeated under related.
+        $this->assertSame(['match' => ['Senior React Developer'], 'related' => ['Junior PHP Developer'], 'fits' => [], 'other' => []],
+            $this->tiers(['titles' => ['React Developer']]));
+    }
+
+    public function test_related_jobs_mention_one_of_your_skills(): void
+    {
+        // Both are developer jobs, but only the PHP one mentions Laravel; the other is still listed after.
+        $this->assertSame(['match' => [], 'related' => ['Junior PHP Developer'], 'fits' => [], 'other' => ['Senior React Developer']],
+            $this->tiers(['titles' => ['Frontend Developer'], 'keywords' => ['Laravel']]));
+    }
+
+    public function test_long_keywords_become_their_key_word(): void
+    {
+        $long = 'Proficient in building responsive and accessible user interfaces for large web applications';
+        $this->postJson('/api/job-search', ['titles' => ['developer'], 'keywords' => [$long, 'JavaScript (ES6+)'], 'sources' => ['remotive']])
+            ->assertOk()->assertJsonPath('search.params.keywords', ['responsive', 'JavaScript']);
+        $this->assertSame('customer service', JobFinder::shortKeyword('Strong knowledge of customer service and sales'));
+    }
+
+    public function test_philippines_is_always_one_of_the_places(): void
+    {
+        $this->assertSame(['Makati', 'Philippines'], JobFinder::locationsOf(['locations' => ['Makati']]));
+        $this->assertSame(['Philippines'], JobFinder::locationsOf(['locations' => ['Anywhere in the Philippines']]));
+        $this->assertSame([], JobFinder::locationsOf(['locations' => []])); // none chosen: anywhere
     }
 
     public function test_filters(): void
     {
-        $titles = fn (array $p) => collect($this->postJson('/api/job-search', ['keywords' => 'developer', 'sources' => ['remotive'], ...$p])->json('jobs'))->pluck('title')->all();
+        $titles = fn (array $p) => $this->matching(['keywords' => 'developer', ...$p]);
 
         $this->assertSame(['Senior React Developer'], $titles(['location' => 'Philippines'])); // Worldwide counts
         $this->assertSame(['Junior PHP Developer'], $titles(['employment_types' => ['contract']]));
@@ -81,6 +186,17 @@ class JobFinderTest extends TestCase
         $this->assertSame(['Senior React Developer'], $titles(['posted_within' => 7]));
         $this->assertSame([], $titles(['salary_min' => 9000, 'salary_currency' => 'USD', 'levels' => ['senior']]));
         $this->assertSame(['Junior PHP Developer'], $titles(['salary_min' => 9000, 'salary_currency' => 'USD', 'levels' => ['junior']])); // no salary: kept
+    }
+
+    public function test_filters_keep_jobs_that_dont_say(): void
+    {
+        $job = ['source' => 'remotive', 'title' => 'Assistant', 'company' => 'A', 'tags' => '', 'description' => '', 'location' => null,
+            'work_setup' => null, 'employment_type' => null, 'experience_level' => null, 'posted_at' => null,
+            'salary_min' => null, 'salary_max' => null, 'salary_currency' => null];
+        $finder = app(JobFinder::class);
+
+        $this->assertTrue($finder->matches($job, ['levels' => ['junior'], 'work_setups' => ['onsite'], 'employment_types' => ['full_time']]));
+        $this->assertFalse($finder->matches([...$job, 'experience_level' => 'senior'], ['levels' => ['junior']])); // says otherwise
     }
 
     public function test_himalayas_maps_jobs_and_follows_its_terms(): void
@@ -151,9 +267,9 @@ class JobFinderTest extends TestCase
         $search = $this->postJson('/api/job-search', ['title' => 'react'])->json('search.id');
 
         $this->patchJson("/api/job-searches/{$search}", ['name' => 'React jobs'])->assertJsonPath('name', 'React jobs');
-        $this->getJson("/api/job-searches/{$search}")->assertJsonCount(1, 'jobs');
+        $this->getJson("/api/job-searches/{$search}")->assertJsonCount(1, 'jobs'); // the matches
         $this->deleteJson("/api/job-searches/{$search}")->assertNoContent();
-        $this->assertSame(1, JobPosting::count()); // discovered jobs stay
+        $this->assertSame(3, JobPosting::count()); // discovered jobs stay (all 3 the fake sources have)
     }
 
     public function test_ai_actions(): void

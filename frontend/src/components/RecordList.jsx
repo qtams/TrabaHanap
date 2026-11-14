@@ -10,14 +10,19 @@ import SidePanel from './SidePanel.jsx'
  * describe(item) → { title, subtitle, meta, link } for the card.
  * isValid(item) → whether Save is allowed (e.g. a name is filled in).
  * children(draft, update) → the form fields; update(patch) merges into the draft.
+ * addAt: 'end' (default) or 'start' for newest-first lists like work experience.
+ * errors: { index: [messages] } from a failed save; those cards get a red border and the messages.
  */
-export default function RecordList({ items, onChange, blank, noun, describe, isValid = () => true, panelDescription, children }) {
+export default function RecordList({
+  items, onChange, blank, noun, describe, isValid = () => true, panelDescription, panelWidth, addAt = 'end', errors = {}, children,
+}) {
   const [editing, setEditing] = useState(null) // { index: number | null (new), draft }
   const close = () => setEditing(null)
 
   const save = () => {
     const { index, draft } = editing
-    onChange(index === null ? [...items, draft] : items.map((x, i) => (i === index ? draft : x)))
+    const added = addAt === 'start' ? [draft, ...items] : [...items, draft]
+    onChange(index === null ? added : items.map((x, i) => (i === index ? draft : x)))
     close()
   }
 
@@ -33,10 +38,11 @@ export default function RecordList({ items, onChange, blank, noun, describe, isV
       {items.map((item, i) => {
         const { title, subtitle, meta, link } = describe(item)
         return (
-          <article key={i} className="group flex items-start gap-3 rounded-lg border border-line px-4 py-3 transition-colors hover:border-subtle">
+          <article key={i} data-error={errors[i] ? 'true' : undefined} className={`group flex items-start gap-3 rounded-lg border px-4 py-3 transition-colors ${errors[i] ? 'border-red-500 bg-red-50/50 dark:bg-red-950/20' : 'border-line hover:border-subtle'}`}>
             <div className="min-w-0 flex-1">
               <p className="truncate text-[14px] font-medium">{title || <span className="text-subtle">Untitled {noun}</span>}</p>
               {subtitle && <p className="truncate text-[13px] text-muted">{subtitle}</p>}
+              {errors[i]?.map((m) => <p key={m} className="drop-in mt-1 text-[12px] text-red-600 dark:text-red-400">{m} Click edit to fix it.</p>)}
               {(meta || link) && (
                 <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-subtle">
                   {meta}
@@ -77,6 +83,7 @@ export default function RecordList({ items, onChange, blank, noun, describe, isV
           primaryLabel={editing.index === null ? 'Add' : 'Save'}
           onPrimary={save}
           primaryDisabled={!isValid(editing.draft)}
+          {...(panelWidth && { width: panelWidth })}
         >
           <div className="space-y-4">
             {children(editing.draft, (patch) => setEditing((e) => ({ ...e, draft: { ...e.draft, ...patch } })))}

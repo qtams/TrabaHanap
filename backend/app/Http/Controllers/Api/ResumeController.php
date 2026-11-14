@@ -122,6 +122,40 @@ class ResumeController extends Controller
         ])->fresh(), 201);
     }
 
+    // No resume yet: the AI writes one from the Professional Profile. Saved as a version without a file.
+    public function build(ResumeAi $ai)
+    {
+        $profile = Profile::current()->data;
+        $hasFacts = $profile['experience'] || $profile['education'] || array_filter($profile['skills']);
+        abort_unless($hasFacts, 422, 'Fill in My Professional Profile first (at least your work experience, education or skills). The AI builds your resume only from it.');
+
+        $result = $ai->build($profile);
+        $name = trim($profile['personal']['full_name'] ?? '') ?: 'My';
+
+        return response()->json(Resume::create([
+            'title' => $name === 'My' ? 'My resume (built by AI)' : "{$name} resume (built by AI)",
+            'data' => $result['resume'],
+            'extracted_at' => now(),
+            'tailoring_notes' => ['kind' => 'built', ...$result['notes']],
+        ])->fresh(), 201);
+    }
+
+    // A stronger rewrite of this resume (using its analysis and the profile), as a new version.
+    public function improve(Resume $resume, ResumeAi $ai)
+    {
+        abort_unless($resume->data, 422, 'Extract the resume information first.');
+        $profile = Profile::current()->data;
+        $result = $ai->improve($resume->data, $resume->analysis, $profile !== Profile::BLANK ? $profile : null);
+
+        return response()->json(Resume::create([
+            'title' => preg_replace('/ \((improved|built by AI)\)$/', '', $resume->title).' (improved)',
+            'data' => $result['resume'],
+            'extracted_at' => now(),
+            'tailored_from_id' => $resume->id,
+            'tailoring_notes' => ['kind' => 'improved', ...$result['notes']],
+        ])->fresh(), 201);
+    }
+
     private function storeFile(UploadedFile $file): array
     {
         return [

@@ -10,3 +10,9 @@ const api = axios.create({
 })
 
 export default api
+
+// Signed out or session expired: tell the app (AuthProvider), which shows the login page.
+api.interceptors.response.use(undefined, (error) => {
+  if (error.response?.status === 401 && !error.config.url.endsWith('/me')) window.dispatchEvent(new Event('auth:expired'))
+  return Promise.reject(error)
+})
